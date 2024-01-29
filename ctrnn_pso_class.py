@@ -269,7 +269,7 @@ targ_hist = np.exp(-bins/10) # normalized occupency
 targ_hist = targ_hist[:-1]  # to match bins
 targ_hist = targ_hist/np.sum(targ_hist)
 Mt = np.array([[0.9, 0.1],
-               [0.3, 0.7]])
+               [0.4, 0.6]])
 target_bin_count = targ_hist, bins  , Mt
 xs = np.random.randn(13,10)
 test_ft = myrnn.particles_sim_and_eva(xs, target_bin_count)
@@ -407,11 +407,11 @@ class CTRNN_driven(CTRNN):
 myrnn_driven = CTRNN_driven(N, dt, lt, K)
 myrnn_driven.x_network = x_best   # using the optimized network structure
 target_response = np.zeros(lt) + 0.2
-target_response[40:60] = 0.9
+target_response[40:60] = 0.5
 # target_response[61:] = 0.2
 
 # %%
-my_pso = PSO_test(myrnn_driven, target_response)
+# my_pso = PSO_test(myrnn_driven, target_response)
 my_pso.D = 2
 gbest_val_driven, gbest_store_driven = my_pso.run_pso()
 plt.figure()
@@ -423,16 +423,18 @@ plt.ylabel('fitness, gbest_val')
 I_best = gbest_store_driven[:,-1]
 out = myrnn_driven.rep_RNN(I_best)
 response = myrnn_driven.response(out)
+
+# %%
 plt.figure()
 plt.subplot(211)
-plt.plot(response)
-plt.plot(target_response)
-plt.ylabel('P(pir)', fontsize=20)
+plt.plot(response[20:])
+plt.plot(target_response[20:]+0.)
+plt.ylabel('P(turn)', fontsize=20)
 plt.xticks([])
 
 raster = np.array(out)
 plt.subplot(212)
-plt.imshow(raster, aspect='auto')
+plt.imshow(raster[:,20:], aspect='auto')
 plt.xlabel('time', fontsize=20)
 
 # %%

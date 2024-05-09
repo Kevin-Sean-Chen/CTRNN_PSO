@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Jan 22 04:11:57 2024
+Created on Sat Jan 13 02:18:27 2024
 
 @author: kevin
 """
@@ -14,9 +14,9 @@ matplotlib.rc('xtick', labelsize=20)
 matplotlib.rc('ytick', labelsize=20)
 
 # %%
-# CTRNN with three neurons, each corresponding to run, rev, and turn
+# CTRNN class would simulate and evaluate behavior from RNN with noise
 # PSO_test class would perform particle swarm optimization given RNN target output
-# the target has state-dependent IO
+# ... this is a test that can be later extended on the cluster and with real data target
 
 # %% CTRNN class
 class CTRNN:
@@ -44,20 +44,18 @@ class CTRNN:
         ---
         return time series simulated for RNN
         """
-        wij, tau_i, b_i, sig_ni, tau_ni = self.unpack_vec(x) #,thre
+        wij, tau_i, b_i, sig_ni, tau_ni, thre = self.unpack_vec(x)
         lt, dt, N = self.lt, self.dt, self.N
         xt = np.zeros((N,lt))
         xt[:,0] = np.random.rand(N)
         It = xt*1
         rt = xt*1
-        x_out = np.zeros(lt)
-        # print(len(b_i))
         for tt in range(lt-1):
             xt[:,tt+1] = xt[:,tt] + dt/tau_i*(-xt[:,tt] + wij @ self.NL(xt[:,tt] + b_i) + It[:,tt])
-            It[:,tt+1] = It[:,tt] + dt*(-It[:,tt]/tau_ni + dt**0.5*sig_ni*1*np.random.randn(N))
+            It[:,tt+1] = It[:,tt] + dt*(-It[:,tt]/tau_ni + dt**0.5*sig_ni**1*np.random.randn(N))
             rt[:,tt+1] = self.NL(xt[:,tt+1] + b_i)
-            
-            x_out[tt+1] = np.argmax(rt[:,tt+1])  # competetive circuit assumption
+        x_out = np.zeros(lt)
+        x_out[ rt[0,:] > thre ] = 1
         return x_out, rt
     
     def rep_RNN(self, x):
@@ -80,29 +78,14 @@ class CTRNN:
         b_i = x[N**2+N:N**2+N*2]
         sig_ni = x[N**2+N*2:N**2+N*3]
         tau_ni = x[N**2+N*3:N**2+N*4]
-        # thre = x[-N:]
-        return wij, tau_i, b_i, sig_ni, tau_ni  #, thre
+        thre = x[-1]
+        return wij, tau_i, b_i, sig_ni, tau_ni, thre
     
     def make_bounds(self):
         # hand-tuned for now...
         # wij, tauij, bij, sigij, tauNij, thre
-        
-        U_ws = np.ones(self.N**2)*20
-        L_ws = np.ones(self.N**2)*-20
-        U_tau = np.ones(self.N)*1
-        L_tau = np.ones(self.N)*.1
-        U_b = np.ones(self.N)*10
-        L_b = np.ones(self.N)*-10
-        U_sig = np.ones(self.N)*100
-        L_sig = np.ones(self.N)*1 
-        U_tauN = np.ones(self.N)*1
-        L_tauN = np.ones(self.N)*.1
-        # U_thre = np.ones(self.N)*1 
-        # L_thre = np.ones(self.N)*0
-        
-        xU = np.concatenate((U_ws, U_tau, U_b, U_sig, U_tauN))
-        xL = np.concatenate((L_ws, L_tau, L_b, L_sig, L_tauN))
-        
+        xU = np.array([20,20,20,20,     1,1,   10,10,  100,100,  1,1,  1])*1
+        xL = np.array([-20,-20,-20,-20, .1,.1,  -10,-10, 1,  1,    .1,.1,  0])*1
         return xU, xL
     
     def NL(self, x):
@@ -156,7 +139,7 @@ class CTRNN:
         compute state transition matrix
         """
         reps = len(state_t)
-        transition_matrix = np.zeros((self.N, self.N))+1
+        transition_matrix = np.zeros((2, 2))+1
         
         for rr in range(reps):
             state_i = state_t[rr]
@@ -208,7 +191,7 @@ class PSO_test:
         pbest_val = np.zeros(self.Np)            # Personal best fintess value. One pbest value per particle.
         gbest_val = np.zeros(self.max_iter)      # Global best fintess value. One gbest value per iteration (stored).
 
-        pbest = np.zeros((self.D, self.Np))      # pbest solution
+        pbest = np.zeros((self.D, self.Np))       # pbest solution
         gbest = np.zeros(self.D)                 # gbest solution
 
         gbest_store = np.zeros((self.D, self.max_iter)) # storing gbest solution at each iteration
@@ -274,10 +257,9 @@ class PSO_test:
 
 # %% test rounds...
 # %% rnn simulation
-N, dt, lt, K = 3, 0.1, 100, 30
-nparam = N**2 + N*4
+N, dt, lt, K = 2, 0.1, 100, 30
 myrnn = CTRNN(N, dt, lt, K)
-test_sim, _ = myrnn.sim_RNN(np.random.randn(nparam)*1)
+test_sim, _ = myrnn.sim_RNN(np.random.randn(13))
 plt.plot(test_sim.T)
 
 # %% particles
@@ -286,16 +268,14 @@ targ_hist = np.exp(-bins/10) # normalized occupency
 # targ_hist = gamma.pdf(bins, a=5, scale=1/.2)
 targ_hist = targ_hist[:-1]  # to match bins
 targ_hist = targ_hist/np.sum(targ_hist)
-Mt = np.array([[0.8, 0.1,0.1],
-               [0.2, 0.6,0.2],
-               [0.05, 0.05,0.9]])
+Mt = np.array([[0.9, 0.1],
+               [0.3, 0.7]])
 target_bin_count = targ_hist, bins  , Mt
-xs = np.random.randn(nparam,K)
+xs = np.random.randn(13,10)
 test_ft = myrnn.particles_sim_and_eva(xs, target_bin_count)
 
 # %% test pso
 my_pso = PSO_test(myrnn, target_bin_count)
-my_pso.D = nparam
 gbest_val, gbest_store = my_pso.run_pso()
 plt.figure()
 plt.plot(gbest_val)
@@ -337,44 +317,123 @@ plt.subplots_adjust(wspace=0.4, hspace=0.4)
 # check trained RNN
 # constrain with HMM
 
-# %% Dynamical analysis
-#### find fixed-points and compute stability
-###############################################################################
-# %% loading
-from scipy.optimize import root
-from scipy.optimize import approx_fprime
+# %%
+class CTRNN_driven(CTRNN):
+    def __init__(self, N, dt, lt, K):
+        super().__init__(N, dt, lt, K)
+        """
+        network with N neurons, dt step, and lt length
+        K repeats for statsitics
+        """
+        self.N = N
+        self.dt = dt
+        self.lt = lt
+        self.K = K
+        self.x_network = []
+    
+    ### over-writing some functions for driven network
+    def sim_RNN(self, x_input, x_network):
+        """
+        simulate with input
+        """
+        wij, tau_i, b_i, sig_ni, tau_ni, thre = self.unpack_vec(x_network)
+        Ii = x_input*1
+        lt, dt, N = self.lt, self.dt, self.N
+        xt = np.zeros((N,lt))
+        xt[:,0] = np.random.rand(N)
+        It = xt*1
+        rt = xt*1
+        Iinput = np.zeros(lt) + .1
+        Iinput[40:60] = 1
+        for tt in range(lt-1):
+            xt[:,tt+1] = xt[:,tt] + dt/tau_i*(-xt[:,tt] + wij @ self.NL(xt[:,tt] + b_i) + It[:,tt] + Ii*Iinput[tt])
+            It[:,tt+1] = It[:,tt] + dt*(-It[:,tt]/tau_ni + dt**0.5*sig_ni**1*np.random.randn(N))
+            rt[:,tt+1] = self.NL(xt[:,tt+1] + b_i)
+        x_out = np.zeros(lt)
+        x_out[ rt[0,:] > thre ] = 1
+        return x_out, rt
+    
+    def make_bounds(self):
+        # hand-tuned for now...
+        # wij, tauij, bij, sigij, tauNij, thre
+        xU = np.array([10,  10])*1
+        xL = np.array([-10, -10])*1
+        return xU, xL
 
-# %% fixed points
-# Define your multidimensional function
-def fp_RNN_function(x, x_best=x_best):
-    wij, tau_i, b_i, sig_ni, tau_ni = myrnn.unpack_vec(x_best)
-    return -x + wij @ myrnn.NL(x + b_i) + 0 
+    def fitness(self, xt, tt):
+        """
+        input time series xt and target tt 
+        return fittness between them
+        """
+        res = self.response(xt)
+        ft = -np.min([ np.sum((res - tt)**2), np.sum((res + tt)**2) ])
+        return ft
+    
+    def response(self, state_t):
+        """
+        compute the average response coarse
+        """
+        reps = len(state_t)
+        res = np.zeros(len(state_t[0]))
+        for rr in range(reps):
+            res = res + state_t[rr]
+        res = res / reps
+        return res
+    
+    def rep_RNN(self, x_input):
+        """
+        repeat sim_RNN for better statsitics
+        """
+        outs = []
+        for i in range(self.K):
+            x_out, _ = self.sim_RNN(x_input, self.x_network)
+            outs.append(x_out)
+        return outs
+    
+    def particles_sim_and_eva(self, x, target_response):
+        """
+        putting simulation together
+        input parameter vector x (D x Np) and target bin-counts
+        return Np particles of fittness fts
+        """
+        Np = x.shape[1]  # D x Np
+        fts = np.zeros(Np)
+        for pp in  range(Np):
+            out = self.rep_RNN(x[:,pp])
+            fts[pp] = self.fitness(out, target_response)
+        return fts
 
-# Initial guess
-x0 = np.random.randn(N)*10    
+# %%
+myrnn_driven = CTRNN_driven(N, dt, lt, K)
+myrnn_driven.x_network = x_best   # using the optimized network structure
+target_response = np.zeros(lt) + 0.2
+target_response[40:60] = 0.9
+# target_response[61:] = 0.2
 
-# Find the roots
-result = root(fp_RNN_function, x0)
+# %%
+my_pso = PSO_test(myrnn_driven, target_response)
+my_pso.D = 2
+gbest_val_driven, gbest_store_driven = my_pso.run_pso()
+plt.figure()
+plt.plot(gbest_val)
+plt.xlabel('iterations')
+plt.ylabel('fitness, gbest_val')
 
-if result.success:
-    print("Roots found:")
-    print(result.x)
-else:
-    print("Root finding failed. Message:", result.message)
+# %%
+I_best = gbest_store_driven[:,-1]
+out = myrnn_driven.rep_RNN(I_best)
+response = myrnn_driven.response(out)
+plt.figure()
+plt.subplot(211)
+plt.plot(response)
+plt.plot(target_response)
+plt.ylabel('P(pir)', fontsize=20)
+plt.xticks([])
 
-fp_x = result.x*1
+raster = np.array(out)
+plt.subplot(212)
+plt.imshow(raster, aspect='auto')
+plt.xlabel('time', fontsize=20)
 
-# %% stability
-# Define your nonlinear function
-def nonlinear_RNN(x):
-    wij, tau_i, b_i, sig_ni, tau_ni = myrnn.unpack_vec(x_best)
-    return -x + wij @ myrnn.NL(x + b_i) +0   
-
-# Compute the Jacobian numerically
-Jacobian = approx_fprime(fp_x, nonlinear_RNN, epsilon=1e-6)
-
-print("Numerical Jacobian matrix:")
-print(Jacobian)
-
-eigenvalues = np.linalg.eig(Jacobian)
-print(eigenvalues[0])
+# %%
+### why not jointly train spontaneous and response profile!!

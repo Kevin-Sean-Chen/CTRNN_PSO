@@ -9,6 +9,8 @@ Created on Wed May  8 17:26:39 2024
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.stats import gamma
+from mpl_toolkits.mplot3d import Axes3D
+
 
 import matplotlib 
 matplotlib.rc('xtick', labelsize=20) 
@@ -73,7 +75,7 @@ class CTRNN:
             rt[:,tt+1] = self.NL(xt[:,tt+1] + b_i)
             x_out[tt+1] = np.argmax(rt[:,tt+1])
             
-        return x_out, rt
+        return x_out, xt
     
     def rep_RNN(self, x):
         """
@@ -309,7 +311,7 @@ class PSO_test:
 
 # %% test rounds...
 # %% rnn simulation
-N, dt, lt, K = 3, 0.1, 100, 30
+N, dt, lt, K = 3, 0.1, 100, 30 
 myrnn = CTRNN(N, dt, lt, K)
 nparam = N**2 + N*4
 test_sim, _ = myrnn.sim_RNN(np.random.randn(nparam))
@@ -321,9 +323,9 @@ targ_hist = np.exp(-bins/10) # normalized occupency
 # targ_hist = gamma.pdf(bins, a=5, scale=1/.2)
 targ_hist = targ_hist[:-1]  # to match bins
 targ_hist = targ_hist/np.sum(targ_hist)
-Mt = np.array([[0.8, 0.1,0.1],
+Mt = np.array([[0.7, 0.15,0.15],
                [0.15, 0.7, 0.15],
-               [0.05, 0.05,0.9]])
+               [0.05, 0.05,0.9]])  ## R, T, F
 target_bin_count = targ_hist, bins  , Mt
 xs = np.random.randn(nparam, 10)
 test_ft = myrnn.particles_sim_and_eva(xs, target_bin_count)
@@ -388,18 +390,18 @@ class CTRNN_driven(CTRNN):
         self.targets = [] ## input later
     
     ### over-writing some functions for driven network
-    def sim_RNN(self, x_input, x_network):
+    def sim_RNN(self, x_input):
         """
         simulate with input
         """
-        wij, tau_i, b_i, sig_ni, tau_ni = self.unpack_vec(x_network)  #thre
+        wij, tau_i, b_i, sig_ni, tau_ni = self.unpack_vec(self.x_network)  #thre
         Ii = x_input*1
         lt, dt, N = self.lt, self.dt, self.N
         xt = np.zeros((N,lt))
         xt[:,0] = np.random.rand(N)
         It = xt*1
         rt = xt*1
-        Iinput = np.zeros(lt) + .1
+        Iinput = np.zeros(lt) + .1  
         Iinput[40:60] = 1
         thre = 0.8  # for now
         x_out = np.zeros(lt)
@@ -411,7 +413,7 @@ class CTRNN_driven(CTRNN):
             ### behavioral output
             # x_out[ rt[tt+1,:] > thre ] = 1
             x_out[tt+1] = np.argmax(rt[:,tt+1])  # competetive circuit assumption
-        return x_out, rt
+        return x_out, xt
     
     def make_bounds(self):
         # hand-tuned for now...
@@ -429,11 +431,18 @@ class CTRNN_driven(CTRNN):
         reps = len(xt)
         ft = 0  # fitness count
         res = self.response(xt)
+        mask = np.ones(len(target_response))
+        mask[40:60] = 0
+        cnt = 1
         for rr in range(reps):
             state_t = xt[rr]
             pre_stim_state = state_t[30:40] 
             if len(np.where(pre_stim_state==statei)[0]) > len(np.where(pre_stim_state==statek)[0]):
                 ft = ft + -np.sum((res - target_response)**2)
+                cnt += 1
+            # else:
+            #     ft = ft + -np.sum((mask*(res - target_response))**2) # test to prent...
+            # ft = ft/cnt
         return ft
     
     # def fitness(self, xt, tt):
@@ -483,7 +492,7 @@ class CTRNN_driven(CTRNN):
         """
         outs = []
         for i in range(self.K):
-            x_out, _ = self.sim_RNN(x_input, self.x_network)
+            x_out, _ = self.sim_RNN(x_input)
             outs.append(x_out)
         return outs
     
@@ -529,7 +538,7 @@ plt.figure()
 plt.subplot(211)
 plt.plot(response)
 plt.plot(target_response)
-plt.ylabel('P(pir)', fontsize=20)
+plt.ylabel('P(R)', fontsize=20)
 plt.xticks([])
 
 raster = np.array(out)
@@ -538,6 +547,7 @@ plt.imshow(raster, aspect='auto')
 plt.xlabel('time', fontsize=20); #plt.colorbar()
 
 # %% compute conditional probability
+threshold_t = 17 
 reps = 50 
 ftor,ftorZ  = 0,0
 ttor,ttorZ = 0,0
@@ -548,17 +558,19 @@ for ii in range(reps):
         pre_stim_state = bi[30:40]
         dirven_state = bi[40:60]
         if len(np.where(pre_stim_state==statei)[0]) > len(np.where(pre_stim_state==statek)[0]):
-            if len(np.where(dirven_state==statej)[0])>15:
+            if len(np.where(dirven_state==statej)[0])>threshold_t:
                 ftor += 1
             ftorZ += 1
         elif len(np.where(pre_stim_state==statei)[0]) < len(np.where(pre_stim_state==statek)[0]):
-            if len(np.where(dirven_state==statej)[0])>15:
+        # else:
+            if len(np.where(dirven_state==statej)[0])>threshold_t:
                 ttor += 1
             ttorZ += 1
 
 # %%
 plt.figure()
-plt.bar([1,2],[ftor/ftorZ, ttor/ttorZ])
+plt.bar(['F','T'],[ftor/ftorZ, ttor/ttorZ])
+plt.ylabel('P(R)', fontsize=20)
 
 # %%
 ### why not jointly train spontaneous and response profile!!
@@ -573,45 +585,133 @@ from scipy.optimize import root
 from scipy.optimize import fsolve
 from scipy.optimize import approx_fprime
 from scipy.optimize import fixed_point
+from scipy.optimize import minimize
 
 # %% fixed points
+input_logic = 1 #0 
 # Define your multidimensional function
 def fp_RNN_function(x, x_best=x_best, I_best=I_best):
     wij, tau_i, b_i, sig_ni, tau_ni = myrnn.unpack_vec(x_best)
-    return -x + wij @ myrnn.NL(x + b_i) + I_best*0    
+    return np.sum((-x + wij @ myrnn.NL(x + b_i) + I_best*input_logic)**2)
+    # return -x + wij @ myrnn.NL(x + b_i) + I_best*1
     # return wij @ myrnn.NL(x + b_i) + I_best*1   
 
 # Initial guess
-x0 = np.random.randn(N)*20      
+x0 = np.random.randn(N)*20 
 
 # Find the roots
-result = fsolve(fp_RNN_function, x0)
+# result = fsolve(fp_RNN_function, x0)
 # result = root(fp_RNN_function, x0)
 # result = fixed_point(fp_RNN_function, x0, maxiter=2000)
+result = minimize(fp_RNN_function, x0)
 
-# if result.success:
-#     print("Roots found:")
-#     print(result.x)
-# else:
-#     print("Root finding failed. Message:", result.message)
+if result.success:
+    print("Roots found:")
+    print(result.x)
+else:
+    print("Root finding failed. Message:", result.message)
 
-# fp_x = result.x*1
+fp_x = result.x*1
 
-print(result)
-fp_x = result*1
+# print(result)
+# fp_x = result*1
+
+# %% searching for fp
+fps = []
+nsearch = 100 
+tol = 3
+# Append arrays using a for loop
+for i in range(nsearch):
+    ### initalize
+    x0 = np.random.randn(N)*20  ### random
+    # test, xt = myrnn_driven.sim_RNN(I_best*input_logic)
+    # x0 = xt[:, np.random.randint(0, len(test))]  # along the track
+    
+    # result = fsolve(fp_RNN_function, x0)
+    result = minimize(fp_RNN_function, x0)
+    result = result.x 
+    fps.append(np.round(result, decimals=tol))
+
+# array_tuples = [tuple(np.round(arr, decimals=8).tolist) for arr in fps]
+array_tuples = [tuple(arr.tolist()) for arr in fps]
+
+# Convert the list of tuples to a set to make it unique, then convert back to a list of arrays
+unique_array_tuples = set(array_tuples)
+uniq_fps = [np.array(arr) for arr in unique_array_tuples]
+
+print("Unique fixed-points:", uniq_fps)
 
 # %% stability
 # Define your nonlinear function
 def nonlinear_RNN(x):
     wij, tau_i, b_i, sig_ni, tau_ni = myrnn.unpack_vec(x_best)
-    return -x + wij @ myrnn.NL(x + b_i) + I_best*0    
+    return -x + wij @ myrnn.NL(x + b_i) + I_best*input_logic 
 
 # Compute the Jacobian numerically
-Jacobian = approx_fprime(fp_x, nonlinear_RNN, epsilon=1e-6)
+fp = uniq_fps[2]*1
+# fp = fp_x
+Jacobian = approx_fprime(fp, nonlinear_RNN, epsilon=1e-6)
 
+print('with fp: ', fp)
 print("Numerical Jacobian matrix:")
 print(Jacobian)
 
 eigenvalues = np.linalg.eig(Jacobian)
 print(eigenvalues[0])
 
+# %%
+def invf(x):
+    return -np.log(1/x-1)
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+reps = 50 
+for rr in range(reps):
+    test, xt = myrnn_driven.sim_RNN(I_best*input_logic)  #x_network
+    # ax.plot(invf(rt[0,20:]), invf(rt[1,20:]), invf(rt[2,20:]),'k', alpha=0.1)
+    ax.plot(xt[0,20:], xt[1,20:], xt[2,20:],'k', alpha=0.1)
+ax.set_xlabel('R', fontsize=20)
+ax.set_ylabel('T', fontsize=20)
+ax.set_zlabel('F', fontsize=20)
+fp = uniq_fps[0]-0
+ax.plot(fp[0], fp[1], fp[2], 'ro')
+fp = uniq_fps[1]-0
+ax.plot(fp[0], fp[1], fp[2], 'bo')
+fp = uniq_fps[2]
+ax.plot(fp[0], fp[1], fp[2], 'bo')
+# fp = uniq_fps[3]
+# ax.plot(fp[0], fp[1], fp[2], 'ro')
+
+# %% retrieving fitted parameters
+wij, tau_i, b_i, sig_ni, tau_ni = myrnn_driven.unpack_vec(x_best)
+
+# %% notes
+# try density
+## try flow field and fixed-points
+### search for more than one fp!
+
+# %% save trained solution
+# import pickle
+
+# pre_text = 'trained_3N_driven'
+# filename = pre_text + ".pkl"
+
+# # Store variables in a dictionary
+# data = {'myrnn_driven': myrnn_driven, 'myrnn': myrnn,\
+#         'target_bin_count': target_bin_count, 'target_stim_resp': target_stim_resp}
+
+# # Save variables to a file
+# with open(filename, 'wb') as f:
+#     pickle.dump(data, f)
+
+# print("Variables saved successfully.")
+
+# %% loading fields
+# import pickle
+
+# # Specify the path to your .pkl file
+# file_path = "trained_3N_driven.pkl"
+
+# # Open the .pkl file in binary mode
+# with open(file_path, "rb") as f:
+#     # Load the data from the file
+#     data = pickle.load(f)
